@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>ドット絵 → 3Dボクセル変換ツール</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      background-color: #202020;
+      color: #fff;
+      text-align: center;
+    }
+    h1 { margin: 20px; }
+    .controls {
+      margin: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+    input, button {
+      padding: 5px;
+    }
+    #canvasContainer {
+      width: 100%;
+      height: 75vh;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <h1>ドット絵 → 3Dボクセル変換</h1>
+
+  <div class="controls">
+    <input type="file" id="imageInput" accept="image/*" />
+    <label>横: <input type="number" id="gridWidth" value="16" min="1" /></label>
+    <label>縦: <input type="number" id="gridHeight" value="16" min="1" /></label>
+    <label>厚み: <input type="number" id="depth" value="1" min="1" /></label>
+    <button id="convertBtn">3D表示</button>
+    <button id="exportJSON">JSON保存</button>
+    <button id="importJSON">JSON読み込み</button>
+    <input type="file" id="jsonFileInput" accept=".json" style="display:none" />
+    <button id="exportOBJ">OBJ保存</button>
+  </div>
+
+  <div id="canvasContainer"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const imageInput = document.getElementById("imageInput");
+    const convertBtn = document.getElementById("convertBtn");
+    const gridWidthInput = document.getElementById("gridWidth");
+    const gridHeightInput = document.getElementById("gridHeight");
+    const depthInput = document.getElementById("depth");
+    const canvasContainer = document.getElementById("canvasContainer");
+
+    const exportJSON = document.getElementById("exportJSON");
+    const importJSON = document.getElementById("importJSON");
+    const jsonFileInput = document.getElementById("jsonFileInput");
+    const exportOBJ = document.getElementById("exportOBJ");
+
+    let scene, renderer, camera, controls;
+    let boxData = [];
+
+    let imageBitmap;
+
+    imageInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const blobURL = URL.createObjectURL(file);
+      imageBitmap = await createImageBitmap(await fetch(blobURL).then(r => r.blob()));
+    });
+
+    convertBtn.addEventListener("click", () => {
+      if (!imageBitmap) return alert("画像を選択してね！");
+      const gridW = parseInt(gridWidthInput.value);
+      const gridH = parseInt(gridHeightInput.value);
+      const depth = parseInt(depthInput.value);
+      createVoxelFromImage(imageBitmap, gridW, gridH, depth);
+    });
+
+    exportJSON.addEventListener("click", () => {
+      const dataStr = JSON.stringify(boxData);
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "voxels.json";
+      a.click();
+    });
+
+    importJSON.addEventListener("click", () => jsonFileInput.click());
+    jsonFileInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const json = JSON.parse(text);
+      createVoxelFromJSON(json);
+    });
+
+    exportOBJ.addEventListener("click", () => {
+      const obj = exportToOBJ();
+      const blob = new Blob([obj], { type: "text/plain" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "model.obj";
+      a.click();
+    });
+
+    function createVoxelFromImage(img, gridW, gridH, depthZ) {
+      const canvas = document.createElement("canvas");
+      canvas.width = gridW;
+      canvas.height = gridH;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, gridW, gridH);
+      const imgData = ctx.getImageData(0, 0, gridW, gridH).data;
+
+      initScene();
+      boxData = [];
+
+      const offsetX = -gridW / 2;
+      const offsetY = -gridH / 2;
+
+      for (let y = 0; y < gridH; y++) {
+        for (let x = 0; x < gridW; x++) {
+          const i = (y * gridW + x) * 4;
+          const r = imgData[i];
+          const g = imgData[i + 1];
+          const b = imgData[i + 2];
+          const a = imgData[i + 3];
+          if (a === 0) continue;
+
+          const color = new THREE.Color(`rgb(${r}, ${g}, ${b})`);
+          const geometry = new THREE.BoxGeometry(1, 1, depthZ);
+          const material = new THREE.MeshStandardMaterial({ color, roughness: 0.3, metalness: 0.0 });
+          const cube = new THREE.Mesh(geometry, material);
+          cube.position.set(x + offsetX, -y + offsetY, 0);
+          scene.add(cube);
+
+          boxData.push({
+            x: x + offsetX,
+            y: -y + offsetY,
+            z: 0,
+            depth: depthZ,
+            color: `#${color.getHexString()}`
+          });
+        }
+      }
+    }
+
+    function createVoxelFromJSON(data) {
+      initScene();
+      boxData = data;
+
+      for (const box of boxData) {
+        const geometry = new THREE.BoxGeometry(1, 1, box.depth || 1);
+        const material = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(box.color),
+          roughness: 0.3,
+          metalness: 0.0
+        });
+        const cube = new THREE.Mesh(geometry, material);
+        cube.position.set(box.x, box.y, box.z);
+        scene.add(cube);
+      }
+    }
+
+    function initScene() {
+      canvasContainer.innerHTML = "";
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+      camera.position.set(0, 0, 30);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+      canvasContainer.appendChild(renderer.domElement);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(2, 2, 5);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x888888));
+
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    function exportToOBJ() {
+      let output = '';
+      let index = 0;
+
+      for (const box of boxData) {
+        const x = box.x, y = box.y, z = box.z;
+        const d = box.depth || 1;
+        const w = 1, h = 1;
+
+        const verts = [
+          [x - 0.5, y - 0.5, z - d / 2],
+          [x + 0.5, y - 0.5, z - d / 2],
+          [x + 0.5, y + 0.5, z - d / 2],
+          [x - 0.5, y + 0.5, z - d / 2],
+          [x - 0.5, y - 0.5, z + d / 2],
+          [x + 0.5, y - 0.5, z + d / 2],
+          [x + 0.5, y + 0.5, z + d / 2],
+          [x - 0.5, y + 0.5, z + d / 2],
+        ];
+
+        for (const v of verts) {
+          output += `v ${v[0]} ${v[1]} ${v[2]}\n`;
+        }
+
+        const faces = [
+          [1, 2, 3, 4],
+          [5, 6, 7, 8],
+          [1, 5, 8, 4],
+          [2, 6, 7, 3],
+          [4, 3, 7, 8],
+          [1, 2, 6, 5]
+        ];
+
+        for (const f of faces) {
+          output += `f ${f.map(i => i + index).join(' ')}\n`;
+        }
+
+        index += 8;
+      }
+
+      return output;
+    }
+  </script>
+</body>
+</html>
