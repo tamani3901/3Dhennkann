@@ -75,7 +75,6 @@
 
     let scene, renderer, camera, controls;
     let boxData = [];
-
     let imageBitmap;
 
     imageInput.addEventListener("change", async (e) => {
@@ -111,14 +110,7 @@
       createVoxelFromJSON(json);
     });
 
-    exportOBJ.addEventListener("click", () => {
-      const obj = exportToOBJ();
-      const blob = new Blob([obj], { type: "text/plain" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "model.obj";
-      a.click();
-    });
+    exportOBJ.addEventListener("click", saveOBJ);
 
     function createVoxelFromImage(img, gridW, gridH, depthZ) {
       const canvas = document.createElement("canvas");
@@ -154,8 +146,7 @@
             x: x + offsetX,
             y: -y + offsetY,
             z: 0,
-            depth: depthZ,
-            color: `#${color.getHexString()}`
+            depth: depthZ
           });
         }
       }
@@ -168,7 +159,7 @@
       for (const box of boxData) {
         const geometry = new THREE.BoxGeometry(1, 1, box.depth || 1);
         const material = new THREE.MeshStandardMaterial({
-          color: new THREE.Color(box.color),
+          color: new THREE.Color(box.color || "#ffffff"),
           roughness: 0.3,
           metalness: 0.0
         });
@@ -205,47 +196,58 @@
       renderer.render(scene, camera);
     }
 
-    function exportToOBJ() {
-      let output = '';
-      let index = 0;
+    function saveOBJ() {
+      let obj = "";
+      const vertexMap = new Map();
+      const vertices = [];
+      let currentIndex = 1;
 
-      for (const box of boxData) {
-        const x = box.x, y = box.y, z = box.z;
-        const d = box.depth || 1;
-        const w = 1, h = 1;
+      const faces = [];
 
-        const verts = [
-          [x - 0.5, y - 0.5, z - d / 2],
-          [x + 0.5, y - 0.5, z - d / 2],
-          [x + 0.5, y + 0.5, z - d / 2],
-          [x - 0.5, y + 0.5, z - d / 2],
-          [x - 0.5, y - 0.5, z + d / 2],
-          [x + 0.5, y - 0.5, z + d / 2],
-          [x + 0.5, y + 0.5, z + d / 2],
-          [x - 0.5, y + 0.5, z + d / 2],
-        ];
-
-        for (const v of verts) {
-          output += `v ${v[0]} ${v[1]} ${v[2]}\n`;
-        }
-
-        const faces = [
-          [1, 2, 3, 4],
-          [5, 6, 7, 8],
-          [1, 5, 8, 4],
-          [2, 6, 7, 3],
-          [4, 3, 7, 8],
-          [1, 2, 6, 5]
-        ];
-
-        for (const f of faces) {
-          output += `f ${f.map(i => i + index).join(' ')}\n`;
-        }
-
-        index += 8;
+      function getVertexIndex(x, y, z) {
+        const key = `${x},${y},${z}`;
+        if (vertexMap.has(key)) return vertexMap.get(key);
+        vertexMap.set(key, currentIndex);
+        vertices.push(`v ${x} ${y} ${z}`);
+        return currentIndex++;
       }
 
-      return output;
+      function addFace(v1, v2, v3, v4) {
+        faces.push(`f ${v1} ${v2} ${v3} ${v4}`);
+      }
+
+      for (const box of boxData) {
+        const x = box.x;
+        const y = box.y;
+        const z = box.z;
+        const d = box.depth || 1;
+
+        const v000 = getVertexIndex(x - 0.5, y - 0.5, z - d / 2);
+        const v100 = getVertexIndex(x + 0.5, y - 0.5, z - d / 2);
+        const v010 = getVertexIndex(x - 0.5, y + 0.5, z - d / 2);
+        const v110 = getVertexIndex(x + 0.5, y + 0.5, z - d / 2);
+        const v001 = getVertexIndex(x - 0.5, y - 0.5, z + d / 2);
+        const v101 = getVertexIndex(x + 0.5, y - 0.5, z + d / 2);
+        const v011 = getVertexIndex(x - 0.5, y + 0.5, z + d / 2);
+        const v111 = getVertexIndex(x + 0.5, y + 0.5, z + d / 2);
+
+        addFace(v011, v111, v110, v010); // 上
+        addFace(v000, v100, v101, v001); // 下
+        addFace(v100, v110, v111, v101); // 右
+        addFace(v001, v011, v010, v000); // 左
+        addFace(v001, v101, v111, v011); // 前
+        addFace(v100, v000, v010, v110); // 後ろ
+      }
+
+      obj += vertices.join('\n') + '\n' + faces.join('\n');
+
+      const blob = new Blob([obj], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "model.obj";
+      a.click();
+      URL.revokeObjectURL(url);
     }
   </script>
 </body>
