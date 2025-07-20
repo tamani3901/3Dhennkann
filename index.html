@@ -196,59 +196,76 @@
       renderer.render(scene, camera);
     }
 
-    function saveOBJ() {
-      let obj = "";
-      const vertexMap = new Map();
-      const vertices = [];
-      let currentIndex = 1;
+function saveOBJ(voxelData, voxelSize = 1) {
+  const vertices = [];
+  const faces = [];
+  const colors = [];
+  const indexMap = new Map();
+  let vertexOffset = 1;
 
-      const faces = [];
+  const directions = [
+    { name: 'px', dir: [1, 0, 0], face: [0, 1, 2, 3] },  // +X
+    { name: 'nx', dir: [-1, 0, 0], face: [4, 5, 6, 7] }, // -X
+    { name: 'py', dir: [0, 1, 0], face: [0, 3, 7, 4] },  // +Y
+    { name: 'ny', dir: [0, -1, 0], face: [1, 5, 6, 2] }, // -Y
+    { name: 'pz', dir: [0, 0, 1], face: [3, 2, 6, 7] },  // +Z
+    { name: 'nz', dir: [0, 0, -1], face: [0, 1, 5, 4] }, // -Z
+  ];
 
-      function getVertexIndex(x, y, z) {
-        const key = `${x},${y},${z}`;
-        if (vertexMap.has(key)) return vertexMap.get(key);
-        vertexMap.set(key, currentIndex);
-        vertices.push(`v ${x} ${y} ${z}`);
-        return currentIndex++;
+  function getKey(x, y, z) {
+    return `${x},${y},${z}`;
+  }
+
+  // ボクセルをMapで記録（高速参照用）
+  const voxelMap = new Map();
+  for (const v of voxelData) {
+    voxelMap.set(getKey(v.x, v.y, v.z), v);
+  }
+
+  for (const voxel of voxelData) {
+    const { x, y, z, color } = voxel;
+    const cx = x * voxelSize;
+    const cy = y * voxelSize;
+    const cz = z * voxelSize;
+
+    const cubeVerts = [
+      [cx, cy, cz],                               // 0
+      [cx + voxelSize, cy, cz],                   // 1
+      [cx + voxelSize, cy, cz + voxelSize],       // 2
+      [cx, cy, cz + voxelSize],                   // 3
+      [cx, cy + voxelSize, cz],                   // 4
+      [cx + voxelSize, cy + voxelSize, cz],       // 5
+      [cx + voxelSize, cy + voxelSize, cz + voxelSize], // 6
+      [cx, cy + voxelSize, cz + voxelSize],       // 7
+    ];
+
+    for (let i = 0; i < 8; i++) {
+      const key = cubeVerts[i].join(',');
+      if (!indexMap.has(key)) {
+        indexMap.set(key, vertexOffset++);
+        vertices.push(`v ${cubeVerts[i].join(' ')}`);
       }
-
-      function addFace(v1, v2, v3, v4) {
-        faces.push(`f ${v1} ${v2} ${v3} ${v4}`);
-      }
-
-      for (const box of boxData) {
-        const x = box.x;
-        const y = box.y;
-        const z = box.z;
-        const d = box.depth || 1;
-
-        const v000 = getVertexIndex(x - 0.5, y - 0.5, z - d / 2);
-        const v100 = getVertexIndex(x + 0.5, y - 0.5, z - d / 2);
-        const v010 = getVertexIndex(x - 0.5, y + 0.5, z - d / 2);
-        const v110 = getVertexIndex(x + 0.5, y + 0.5, z - d / 2);
-        const v001 = getVertexIndex(x - 0.5, y - 0.5, z + d / 2);
-        const v101 = getVertexIndex(x + 0.5, y - 0.5, z + d / 2);
-        const v011 = getVertexIndex(x - 0.5, y + 0.5, z + d / 2);
-        const v111 = getVertexIndex(x + 0.5, y + 0.5, z + d / 2);
-
-        addFace(v011, v111, v110, v010); // 上
-        addFace(v000, v100, v101, v001); // 下
-        addFace(v100, v110, v111, v101); // 右
-        addFace(v001, v011, v010, v000); // 左
-        addFace(v001, v101, v111, v011); // 前
-        addFace(v100, v000, v010, v110); // 後ろ
-      }
-
-      obj += vertices.join('\n') + '\n' + faces.join('\n');
-
-      const blob = new Blob([obj], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "model.obj";
-      a.click();
-      URL.revokeObjectURL(url);
     }
+
+    for (const d of directions) {
+      const nx = x + d.dir[0];
+      const ny = y + d.dir[1];
+      const nz = z + d.dir[2];
+      if (voxelMap.has(getKey(nx, ny, nz))) continue; // 隣があるならスキップ
+
+      const indices = d.face.map(i => indexMap.get(cubeVerts[i].join(',')));
+      faces.push(`usemtl ${color}`);
+      faces.push(`f ${indices.join(' ')}`);
+    }
+  }
+
+  let obj = `# Exported OBJ\n`;
+
+  obj += vertices.join('\n') + '\n';
+  obj += faces.join('\n');
+
+  return obj;
+}
   </script>
 </body>
 </html>
