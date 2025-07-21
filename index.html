@@ -110,7 +110,15 @@
       createVoxelFromJSON(json);
     });
 
-    exportOBJ.addEventListener("click", saveOBJ);
+    exportOBJ.addEventListener("click", () => {
+  const objText = saveOBJ(boxData);  // OBJ文字列を生成
+  const blob = new Blob([objText], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "model.obj";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
 
     function createVoxelFromImage(img, gridW, gridH, depthZ) {
       const canvas = document.createElement("canvas");
