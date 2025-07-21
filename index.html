@@ -199,16 +199,16 @@
 function saveOBJ(voxelData, voxelSize = 1) {
   const vertices = [];
   const faces = [];
-  const colors = [];
   const indexMap = new Map();
   let vertexOffset = 1;
 
+  // 面を出力する6方向（反時計回りに修正済み）
   const directions = [
-    { name: 'px', dir: [1, 0, 0], face: [0, 1, 2, 3] },  // +X
-    { name: 'nx', dir: [-1, 0, 0], face: [4, 5, 6, 7] }, // -X
-    { name: 'py', dir: [0, 1, 0], face: [0, 3, 7, 4] },  // +Y
-    { name: 'ny', dir: [0, -1, 0], face: [1, 5, 6, 2] }, // -Y
-    { name: 'pz', dir: [0, 0, 1], face: [3, 2, 6, 7] },  // +Z
+    { name: 'px', dir: [1, 0, 0], face: [1, 2, 6, 5] },  // +X
+    { name: 'nx', dir: [-1, 0, 0], face: [0, 4, 7, 3] }, // -X
+    { name: 'py', dir: [0, 1, 0], face: [4, 5, 6, 7] },  // +Y
+    { name: 'ny', dir: [0, -1, 0], face: [0, 3, 2, 1] }, // -Y
+    { name: 'pz', dir: [0, 0, 1], face: [3, 7, 6, 2] },  // +Z
     { name: 'nz', dir: [0, 0, -1], face: [0, 1, 5, 4] }, // -Z
   ];
 
@@ -216,7 +216,6 @@ function saveOBJ(voxelData, voxelSize = 1) {
     return `${x},${y},${z}`;
   }
 
-  // ボクセルをMapで記録（高速参照用）
   const voxelMap = new Map();
   for (const v of voxelData) {
     voxelMap.set(getKey(v.x, v.y, v.z), v);
@@ -251,7 +250,7 @@ function saveOBJ(voxelData, voxelSize = 1) {
       const nx = x + d.dir[0];
       const ny = y + d.dir[1];
       const nz = z + d.dir[2];
-      if (voxelMap.has(getKey(nx, ny, nz))) continue; // 隣があるならスキップ
+      if (voxelMap.has(getKey(nx, ny, nz))) continue;
 
       const indices = d.face.map(i => indexMap.get(cubeVerts[i].join(',')));
       faces.push(`usemtl ${color}`);
@@ -260,7 +259,6 @@ function saveOBJ(voxelData, voxelSize = 1) {
   }
 
   let obj = `# Exported OBJ\n`;
-
   obj += vertices.join('\n') + '\n';
   obj += faces.join('\n');
 
